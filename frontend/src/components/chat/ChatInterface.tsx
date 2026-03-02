@@ -19,6 +19,9 @@ export function ChatInterface({ threadId }: Props) {
   const [streamingSources, setStreamingSources] = useState<Citation[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
+  // Refs mirror state so async callbacks always read the latest value (avoids stale closure)
+  const streamingContentRef = useRef("");
+  const streamingSourcesRef = useRef<Citation[]>([]);
 
   useEffect(() => {
     chatApi.listMessages(threadId).then((msgs) => {
@@ -35,6 +38,10 @@ export function ChatInterface({ threadId }: Props) {
   const send = async () => {
     const content = input.trim();
     if (!content || streaming) return;
+
+    // M2: Abort any in-flight stream before starting a new one
+    abortRef.current?.();
+
     setInput("");
 
     // Optimistically add user message
@@ -49,21 +56,30 @@ export function ChatInterface({ threadId }: Props) {
     setStreaming(true);
     setStreamingContent("");
     setStreamingSources([]);
+    // C1: Reset refs so the onDone callback reads fresh values
+    streamingContentRef.current = "";
+    streamingSourcesRef.current = [];
 
     abortRef.current = streamMessage(
       threadId,
       content,
-      (delta) => setStreamingContent((prev) => prev + delta),
-      (sources) => setStreamingSources(sources as Citation[]),
+      (delta) => {
+        streamingContentRef.current += delta;
+        setStreamingContent((prev) => prev + delta);
+      },
+      (sources) => {
+        streamingSourcesRef.current = sources as Citation[];
+        setStreamingSources(sources as Citation[]);
+      },
       () => {
-        // Streaming done — add final assistant message to list
+        // C1: Read from refs — they always hold the final accumulated values
         setMessages((prev) => [
           ...prev,
           {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: streamingContent,
-            sources: streamingSources,
+            content: streamingContentRef.current,
+            sources: streamingSourcesRef.current,
             created_at: new Date().toISOString(),
           },
         ]);
