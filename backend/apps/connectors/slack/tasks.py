@@ -25,8 +25,11 @@ def ingest_slack_event(self, payload: dict) -> dict:
         if not all([team_id, channel_id, ts]):
             return {"skipped": "missing required fields"}
 
-        # Find integration for this Slack workspace
-        integration = Integration.objects.filter(source="slack").first()
+        # S3: Find integration by team_id to prevent cross-org data leakage
+        integrations = Integration.objects.filter(source="slack", is_active=True)
+        integration = next(
+            (i for i in integrations if i.get_config().get("team_id") == team_id), None
+        )
         if not integration:
             logger.warning("No Slack integration found for team %s", team_id)
             return {"skipped": "no integration found"}

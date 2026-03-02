@@ -105,13 +105,18 @@ class SlackEventsView(View):
         team_id = payload.get("team_id") or payload.get("team", {}).get("id")
         if not team_id:
             return None
-        return Integration.objects.filter(source="slack").first()  # match by team_id in production
+        # S3: Match by team_id in config to prevent cross-org data leakage in multi-tenant setup
+        integrations = Integration.objects.filter(source="slack", is_active=True)
+        return next(
+            (i for i in integrations if i.get_config().get("team_id") == team_id), None
+        )
 
     def _verify_signature(self, request: HttpRequest) -> bool:
         signing_secret = settings.SLACK_SIGNING_SECRET
         if not signing_secret:
-            logger.warning("SLACK_SIGNING_SECRET not set, skipping verification")
-            return True
+            # S2: Fail closed — reject all requests when secret is not configured
+            logger.error("SLACK_SIGNING_SECRET not configured — rejecting webhook request")
+            return False
 
         timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
         signature = request.headers.get("X-Slack-Signature", "")
