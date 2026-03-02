@@ -1,0 +1,92 @@
+name: Deploy to AWS ECS
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-deploy:
+    name: Build, Push to ECR, Deploy to ECS
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        run: |
+          docker build -f docker/backend.Dockerfile \
+            -t $ECR_REGISTRY/retrievia-backend:$IMAGE_TAG \
+            -t $ECR_REGISTRY/retrievia-backend:latest .
+          docker push $ECR_REGISTRY/retrievia-backend:$IMAGE_TAG
+          docker push $ECR_REGISTRY/retrievia-backend:latest
+
+      - name: Build and push celery image
+        run: |
+          docker build -f docker/celery.Dockerfile \
+            -t $ECR_REGISTRY/retrievia-celery:$IMAGE_TAG \
+            -t $ECR_REGISTRY/retrievia-celery:latest .
+          docker push $ECR_REGISTRY/retrievia-celery:$IMAGE_TAG
+          docker push $ECR_REGISTRY/retrievia-celery:latest
+
+      - name: Build and push frontend image
+        run: |
+          docker build -f docker/frontend.Dockerfile \
+            -t $ECR_REGISTRY/retrievia-frontend:$IMAGE_TAG \
+            -t $ECR_REGISTRY/retrievia-frontend:latest .
+          docker push $ECR_REGISTRY/retrievia-frontend:$IMAGE_TAG
+          docker push $ECR_REGISTRY/retrievia-frontend:latest
+
+      - name: Deploy backend service
+        run: |
+          aws ecs update-service \
+            --cluster retrievia-cluster \
+            --service retrievia-backend \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy celery worker
+        run: |
+          aws ecs update-service \
+            --cluster retrievia-cluster \
+            --service retrievia-celery \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy celery beat
+        run: |
+          aws ecs update-service \
+            --cluster retrievia-cluster \
+            --service retrievia-celery-beat \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy frontend service
+        run: |
+          aws ecs update-service \
+            --cluster retrievia-cluster \
+            --service retrievia-frontend \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Wait for deployment to stabilize
+        run: |
+          aws ecs wait services-stable \
+            --cluster retrievia-cluster \
+            --services retrievia-backend retrievia-frontend \
+            --region $AWS_REGION

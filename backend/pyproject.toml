@@ -1,0 +1,25 @@
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_django = ["django"]
+known_first_party = ["apps", "config"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "DJANGO", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict_optional = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.local"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+asyncio_mode = "auto"
